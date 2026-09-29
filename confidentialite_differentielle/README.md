@@ -2,6 +2,10 @@
 
 Application de bureau Python/Tkinter issue du projet de stage de recherche. Elle affiche des statistiques sur des données synthétiques, applique les mécanismes de Laplace et gaussien et simule une attaque de distinction entre deux bases voisines.
 
+## Rapport de stage
+
+Le [rapport de stage](rapport_stage.pdf) présente les motivations, la définition mathématique, les mécanismes de Laplace et de Gauss, le point de vue de l'attaquant et les limites pratiques du prototype. Il accompagne le code, sans constituer une certification mathématique du comportement de l'application.
+
 ## Exécuter
 
 Python 3 avec Tkinter installé est nécessaire, ainsi que NumPy et Matplotlib :
