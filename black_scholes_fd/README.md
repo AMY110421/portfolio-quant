@@ -1,25 +1,41 @@
-# Valorisation d'un call européen par différences finies
+# European call pricing with finite differences
 
-Ce projet résout numériquement l'équation de Black-Scholes par schémas explicite et implicite, puis compare le résultat à la formule analytique. Il porte sur un call européen sans dividendes, avec volatilité et taux constants.
+[Français](README.fr.md)
 
-## Lancer
+Solve the Black–Scholes PDE with explicit and implicit Euler time stepping, then compare with the analytical call price. Constant rate/volatility, no dividends, positive spot/strike/volatility/maturity; degenerate cases at zero are deliberately outside the API.
+
+## Run
 
 ```bash
 python -m pip install -r requirements.txt
 python pricing.py
+python benchmark.py
 ```
 
-Le cas d'exemple utilise S0 = K = 100, r = 5 %, volatilité = 20 %, échéance = 1 an. La grille de prix couvre [0, 400]. L'erreur affichée est l'écart absolu au prix analytique.
+Python 3.11+; tested locally with Python 3.12. The benchmark saves CSV tables and a PNG in `results/` and requires no graphical desktop. Run commands from this folder.
 
-## Méthode
+## Method
 
-Le temps numérique τ = T − t augmente de zéro (payoff terminal) à T (prix actuel). Sur la grille des prix S, les dérivées en S sont remplacées par des différences centrées. Le schéma explicite met à jour chaque point avec les valeurs du pas précédent; le schéma implicite résout à chaque pas un système tridiagonal (algorithme de Thomas). La condition à S = 0 est V = 0 et la condition à Smax vaut Smax − K exp(−r τ). Le prix au spot est obtenu par interpolation linéaire.
+Time-to-maturity tau = T − t advances from terminal payoff to today's price. Central spatial differences approximate the PDE. Explicit Euler updates from the previous time layer; implicit Euler solves a tridiagonal system using Thomas' algorithm. Boundary values: V(0,tau) = 0; V(Smax,tau) = Smax − K exp(−r tau). Linear interpolation evaluates the price at spot.
 
-Le schéma explicite vérifie une borne conservative sur le pas de temps et rejette une grille susceptible d'être instable. L'implicite permet des pas plus grands, avec une erreur temporelle qui dépend encore de la résolution. Le domaine tronqué, l'interpolation et les pas spatiaux causent aussi une erreur numérique.
+The explicit scheme rejects a negative diagonal update coefficient; unsupported centered stencils with negative interior off-diagonal coefficients are rejected for both schemes. These checks restrict admissible rate/volatility configurations, rather than silently returning unvalidated values. Smax must exceed both spot and strike. Domain truncation, payoff nonsmoothness, interpolation and time/space steps all contribute to error.
 
-## Pistes d'amélioration
+## Same-grid reference
 
-- Ajouter une étude de convergence selon les pas d'espace et de temps.
-- Tracer l'erreur absolue et le temps de calcul des deux schémas.
-- Expliquer le choix de la borne supérieure Smax et contrôler son impact.
-- Faire une comparaison sur plusieurs spots et volatilités.
+S = K = 100, r = 0.05, volatility = 0.2, T = 1, Smax = 400, 200 space steps and 2,000 time steps:
+
+| Method | Price | Absolute error |
+| --- | ---: | ---: |
+| Analytical | 10.450584 | — |
+| Explicit | 10.441212 | 0.009372 |
+| Implicit | 10.440159 | 0.010425 |
+
+![Convergence and runtime](results/convergence.png)
+
+[Grid study](results/convergence.csv) compares both schemes on the same grid; time steps increase on the finest spatial grid to keep the explicit update admissible. [Domain study](results/domain.csv) varies Smax with spatial spacing approximately fixed at 1, so it does not isolate every source of error. [Parameter cases](results/parameter_cases.csv) cover three spots and two volatilities. Runtime is one indicative wall-clock run and depends on machine/load; no equal-runtime ranking is claimed.
+
+Tests check the analytical reference, no-arbitrage bounds for the reference case, error reduction under refinement, rejected inputs and tridiagonal residuals. They do not prove accuracy over all market configurations.
+
+## Next extensions
+
+Crank–Nicolson with payoff smoothing, puts and put–call parity, Greeks, and a repeated runtime benchmark. Current scope is intentionally explicit.

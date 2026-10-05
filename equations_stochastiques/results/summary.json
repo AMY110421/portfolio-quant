@@ -1,0 +1,13 @@
+{
+  "seed": 42,
+  "paths": 5000,
+  "mu": 2.0,
+  "volatility": 1.0,
+  "T": 1.0,
+  "x0": 1.0,
+  "euler_slope": 0.523371997947726,
+  "milstein_slope": 0.9881119604345088,
+  "slope_fit": "finest four grids",
+  "numpy": "2.3.5",
+  "matplotlib": "3.10.8"
+}

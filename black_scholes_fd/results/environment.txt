@@ -1,0 +1,3 @@
+Python 3.12.14
+NumPy 2.3.5
+Runtime measurements depend on hardware and load; no equal-runtime claim.

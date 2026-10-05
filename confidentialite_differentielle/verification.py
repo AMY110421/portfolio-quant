@@ -1,54 +1,38 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
+"""Distribution diagnostic for a selected adjacent pair; never a DP proof."""
 import numpy as np
-from mechanisms import laplace_mechanism, gaussian_mechanism_from_eps_delta
 
-def verify_epsilon_dp(true_value, sensitivity, epsilon, delta, mech_choice, n_sim=5000):
-    base_avec = true_value
-    base_sans = true_value - sensitivity
-    
-    results_avec = []
-    results_sans = []
-    
-    for _ in range(n_sim):
-        if mech_choice == 1:
-            results_avec.append(laplace_mechanism(base_avec, sensitivity, epsilon))
-            results_sans.append(laplace_mechanism(base_sans, sensitivity, epsilon))
-        else:
-            results_avec.append(gaussian_mechanism_from_eps_delta(base_avec, sensitivity, epsilon, delta))
-            results_sans.append(gaussian_mechanism_from_eps_delta(base_sans, sensitivity, epsilon, delta))
-    
-    std_avec = np.std(results_avec)
-    std_sans = np.std(results_sans)
-    h = max(std_avec, std_sans) * 0.3
-    if h < 0.01:
-        h = 0.01
-    
-    def kde(x, data, bandwidth):
-        if len(data) == 0:
-            return 0
-        data = np.asarray(data, dtype=float)
-        return np.mean(np.exp(-0.5 * ((x - data) / bandwidth)**2)) / (bandwidth * np.sqrt(2 * np.pi))
-    
-    dens_avec = kde(true_value, results_avec, h)
-    dens_sans = kde(true_value, results_sans, h)
-    
-    if dens_sans < 1e-12:
-        tolerance = max(std_avec, std_sans) * 0.1
-        if tolerance < 0.01:
-            tolerance = 0.01
-        prob_avec = np.mean(np.abs(np.array(results_avec) - true_value) < tolerance)
-        prob_sans = np.mean(np.abs(np.array(results_sans) - true_value) < tolerance)
-        if prob_sans > 0:
-            ratio = prob_avec / prob_sans
-        else:
-            ratio = 1.0
-    else:
-        ratio = dens_avec / dens_sans
-    
-    e_eps = np.exp(epsilon)
-    bayes = 1 / (1 + np.exp(epsilon))
-    est_respecte = ratio <= e_eps * 1.1
-    
-    return ratio, e_eps, bayes, est_respecte
+
+def log_density(value, center, scale, mechanism):
+    if not np.isfinite(scale) or scale <= 0:
+        raise ValueError("L'échelle du bruit doit être finie et strictement positive")
+    value = np.asarray(value)
+    if mechanism == "Laplace":
+        return -np.abs(value - center) / scale - np.log(2 * scale)
+    if mechanism == "Gaussien":
+        return -0.5 * ((value - center) / scale)**2 - np.log(scale) - 0.5 * np.log(2 * np.pi)
+    raise ValueError("Mécanisme inconnu")
+
+
+def distribution_diagnostic(center_d, center_dp, scale, mechanism, n_sim=5000, rng=None):
+    """Equal-prior likelihood classification with an approximate 95% MC interval.
+
+    This measures distinguishability of one pair at one noise scale. It does
+    not check the DP definition, all events, all adjacent pairs or composition.
+    """
+    if n_sim < 2 or not np.isfinite([center_d, center_dp]).all():
+        raise ValueError("Centres finis et n_sim >= 2 requis")
+    log_density(center_d, center_d, scale, mechanism)
+    rng = np.random.default_rng() if rng is None else rng
+    draw = rng.laplace if mechanism == "Laplace" else rng.normal
+    outputs_d = draw(center_d, scale, n_sim)
+    outputs_dp = draw(center_dp, scale, n_sim)
+    def classify(z):
+        ld = log_density(z, center_d, scale, mechanism)
+        lp = log_density(z, center_dp, scale, mechanism)
+        return np.where(ld == lp, 0.5, (ld > lp).astype(float))
+    successes = np.concatenate((classify(outputs_d), 1 - classify(outputs_dp)))
+    accuracy = float(successes.mean())
+    stderr = float(successes.std(ddof=1) / np.sqrt(successes.size))
+    return {"accuracy": accuracy, "stderr": stderr,
+            "ci95": (max(0.0, accuracy - 1.96*stderr), min(1.0, accuracy + 1.96*stderr)),
+            "outputs_d": outputs_d, "outputs_dp": outputs_dp}

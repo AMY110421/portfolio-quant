@@ -1,22 +1,48 @@
-# Simulateur pédagogique de confidentialité différentielle
+# Differential privacy: teaching simulator and distinction experiment
 
-Application de bureau Python/Tkinter issue du projet de stage de recherche. Elle affiche des statistiques sur des données synthétiques, applique les mécanismes de Laplace et gaussien et simule une attaque de distinction entre deux bases voisines.
+[Français](README.fr.md) · [Original internship report](rapport_stage.pdf)
 
-## Rapport de stage
+Python/Tkinter desktop prototype for scalar queries on synthetic or locally loaded numerical data. It illustrates noise, utility and an attack distinguishing two known adjacent datasets. It is **not a production privacy library or a private data-release application**: exact statistics are displayed intentionally for teaching.
 
-Le [rapport de stage](rapport_stage.pdf) présente les motivations, la définition mathématique, les mécanismes de Laplace et de Gauss, le point de vue de l'attaquant et les limites pratiques du prototype. Il accompagne le code, sans constituer une certification mathématique du comportement de l'application.
+## Run
 
-## Exécuter
-
-Python 3 avec Tkinter installé est nécessaire, ainsi que NumPy et Matplotlib :
+From this folder, Python 3.11+ (local reference: Python 3.12):
 
 ```bash
 python -m pip install -r requirements.txt
 python app.py
+# Seeded experiment without a graphical desktop:
+python experiment.py
 ```
 
-Les fichiers `app.py`, `data.py`, `utils.py`, `mechanisms.py` et `verification.py` doivent rester ensemble. Les données d'exemple sont codées dans `data.py`. Un CSV peut être chargé localement depuis l'interface ; aucun CSV personnel n'est inclus dans le dépôt.
+The desktop app requires Tkinter and a graphical session. Tk is supplied by the Python distribution or OS, not pip. Keep the Python modules in the same folder. CSV input must be a nonempty, finite, one-dimensional numerical array without a header; data stay local.
 
-## Portée et limites
+## Mathematical convention
 
-La démonstration illustre la sensibilité, le bruit et le compromis entre confidentialité et précision. Le « diagnostic numérique » repose sur une estimation empirique et **ne prouve pas** une garantie mathématique de confidentialité différentielle. La calibration des mécanismes dépend de la définition de l'adjacence, des bornes des données, des paramètres et de la composition éventuelle de requêtes. La simulation d'attaque utilise une suppression de ligne, tandis que le calcul de sensibilité de la moyenne est fondé sur une taille `n` fixe : ne pas interpréter les résultats comme une certification générale de la garantie. Le mode de sigma gaussien manuel ne calcule pas automatiquement une garantie associée.
+**Adjacency means replacing one record while preserving public dataset size n.** Clipping bounds [L,U] and counting threshold are public and fixed before querying. Each record is clipped before computing the scalar statistic.
+
+| Query | Global sensitivity under this convention |
+| --- | --- |
+| Mean | (U − L) / n |
+| Sum | U − L |
+| Count above a fixed threshold | 1 |
+
+The attack replaces the first record by one clipping bound, chosen to maximize the change among these two candidate replacements. This creates one adjacent pair; it is not an exhaustive privacy analysis.
+
+Laplace scale is sensitivity / epsilon, with finite epsilon > 0. The textbook Gaussian calibration is restricted to **0 < epsilon < 1, 0 < delta < 1**, using sensitivity × sqrt(2 log(1.25/delta)) / epsilon with a small conservative factor. Manual sigma is a noise experiment and does **not** automatically imply an (epsilon, delta) guarantee. Invalid parameters are rejected; epsilon = 0 never returns the true value as a purported private output.
+
+Reference: [Dwork & Roth, The Algorithmic Foundations of Differential Privacy, Appendix A](https://www.cis.upenn.edu/~aaroth/Papers/privacybook.pdf).
+
+## Distribution diagnostic
+
+The diagnostic classifies outputs using the known likelihoods under D and D', with equal prior probabilities and one observed release. It reports classification accuracy and an approximate 95% Monte Carlo interval. Graphs, attack and diagnostic use the same current parameters, including manual Gaussian sigma.
+
+It **does not certify DP**, scan all adjacent datasets or measurable events, or account for composition. Approximate intervals concern simulation uncertainty only. Repeated releases require privacy accounting absent from this prototype. NumPy's random generator is suitable for these experiments, not a hardened privacy service.
+
+![Seeded Laplace distinction experiment](results/distinction.png)
+
+[Results](results/distinction.csv): synthetic salaries, clipped mean, bounds [0,100000], seed 42, 10,000 simulations per hypothesis, fixed-size replacement. Increasing epsilon makes this selected pair easier to distinguish; this experiment is not a universal theorem.
+
+## Original report
+
+The PDF is the original internship report, retained as historical context. The **current code and this README** define the corrected prototype; the original PDF has not been revised to document all subsequent implementation changes.

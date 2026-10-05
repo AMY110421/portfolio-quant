@@ -1,33 +1,50 @@
-# Portfolio — mathématiques appliquées et finance quantitative
+# Quantitative finance & applied mathematics portfolio
 
-Trois projets Python réalisés dans le cadre de ma formation et de mon stage de recherche. Ils illustrent la résolution numérique, la simulation de processus aléatoires et l'analyse de données. Le premier est directement consacré au pricing ; les deux autres présentent des méthodes utiles en modélisation quantitative.
+[Français](README.fr.md)
 
-| Projet | Ce qui a été réalisé | Accès direct |
+Academic Python projects covering option pricing, stochastic simulation and statistical privacy. The numerical outputs below are reproducible examples, not a claim of production readiness.
+
+| Project | Methods and evidence | Explore |
 | --- | --- | --- |
-| **Pricing Black–Scholes** | Valorisation d'un call européen par schémas aux différences finies explicite et implicite ; comparaison à la formule analytique. | [Code, méthode et exécution](black_scholes_fd/) |
-| **Équations différentielles stochastiques** | Simulations de trajectoires et comparaison numérique d'Euler–Maruyama et de Milstein ; étude d'une diffusion en racine carrée. | [Code et rapport LaTeX](equations_stochastiques/) |
-| **Confidentialité différentielle** | Prototype Python/Tkinter avec bruit de Laplace et gaussien et simulation d'une attaque de distinction entre bases voisines. | [Code et limites](confidentialite_differentielle/) · [Rapport de stage (PDF)](confidentialite_differentielle/rapport_stage.pdf) |
+| **European option pricing** | Explicit/implicit finite differences, Thomas solver, analytical Black–Scholes benchmark, grid refinement and domain sensitivity | [Code, results and assumptions](black_scholes_fd/) |
+| **Stochastic differential equations** | Euler–Maruyama and Milstein against exact GBM; coupled Brownian paths, Monte Carlo uncertainty, square-root diffusion | [Code, figures and PDF report](equations_stochastiques/) |
+| **Differential privacy** | Laplace/Gaussian teaching simulator, fixed-size replacement adjacency, equal-prior distinction experiment | [Application, experiment and limitations](confidentialite_differentielle/) |
 
-## Résultat vérifié : pricing d'un call
+## Selected numerical results
 
-Pour l'exemple fourni dans le code (`S0 = K = 100`, `r = 5 %`, `σ = 20 %`, `T = 1 an`) :
+**Pricing:** European call, S = K = 100, r = 5%, volatility = 20%, maturity = 1 year, Smax = 400. Both schemes use 200 space steps and 2,000 time steps.
 
-| Méthode | Prix | Écart absolu à la formule analytique |
+| Method | Price | Absolute error |
 | --- | ---: | ---: |
-| Black–Scholes analytique | 10,450584 | — |
-| Différences finies, explicite | 10,441212 | 0,009372 |
-| Différences finies, implicite | 10,435422 | 0,015162 |
+| Analytical Black–Scholes | 10.450584 | — |
+| Explicit finite differences | 10.441212 | 0.009372 |
+| Implicit finite differences | 10.440159 | 0.010425 |
 
-Ces valeurs correspondent à **un jeu de paramètres et une grille** ; elles ne constituent pas une étude de convergence. Les hypothèses et limites numériques sont détaillées dans le [README du projet](black_scholes_fd/README.md).
+![Same-grid pricing accuracy and indicative runtime](black_scholes_fd/results/convergence.png)
 
-## Reproduire les projets
+**Stochastic simulation:** terminal strong L1 convergence on a GBM (mu = 2, volatility = 1, x0 = 1, T = 1), seed 42, 5,000 paths. Empirical slopes fitted to the finest four grids: **Euler 0.523; Milstein 0.988**. These are fitted estimates, not proofs of convergence orders.
 
-Chaque dossier possède son propre `requirements.txt` et ses instructions dans son README. Par exemple, depuis la racine du dépôt :
+![Euler–Milstein convergence with Monte Carlo uncertainty](equations_stochastiques/results/figure_euler_milstein_loglog.png)
+
+## Reproduce
+
+Reference environment: **Python 3.12**, NumPy 2.3.5, Matplotlib 3.10.8. CI is configured for Python 3.11 and 3.12. Create an isolated environment:
 
 ```bash
-cd black_scholes_fd
+python -m venv .venv
+# macOS/Linux
+source .venv/bin/activate
+# Windows PowerShell: .venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
-python pricing.py
+python -m unittest discover -s tests -v
 ```
 
-Le projet d'équations stochastiques produit des figures interactives avec des tirages aléatoires. L'application de confidentialité différentielle nécessite un environnement graphique avec Tkinter. Son diagnostic numérique est pédagogique et **ne certifie pas** une garantie mathématique de confidentialité.
+Each folder includes its own instructions. Numerical experiment scripts save plots and CSV files without requiring a graphical desktop. The Tkinter application requires Python with Tk support and a graphical session.
+
+## Scope and attribution
+
+The pricing example covers European calls without dividends and constant market parameters. The stochastic report preserves its original group attribution (Ndeye Amy Diop, Néné Konte and Ndèye Sira Ndiaye); it should not be read as a claim of sole authorship. The differential-privacy project originates from a research internship; its original report is supplied separately from the updated prototype.
+
+The DP application displays exact and noisy statistics for teaching: it is **not a private data-release service**, does not account for composed releases, and its distribution diagnostic does not certify privacy. Numerical boundary corrections for square-root SDEs also retain finite-step bias.
+
+[Changes and validation](CHANGELOG.md) · [French overview](README.fr.md)

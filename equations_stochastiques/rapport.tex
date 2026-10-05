@@ -3,7 +3,7 @@
  
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
-\usepackage[french]{babel}
+\usepackage[provide=*,french]{babel}
 \usepackage{amsmath, amssymb}
 \usepackage{geometry}
 \usepackage{xcolor}
@@ -11,6 +11,7 @@
 \usepackage{graphicx}
 \usepackage{hyperref}
 \usepackage{setspace}
+\setlength{\emergencystretch}{2em}
 \usepackage{fancyhdr}
 \usepackage{tikz}
 \usepackage{eso-pic}
@@ -53,7 +54,7 @@
 % Encodage et langue
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
-\usepackage[french]{babel}
+\usepackage[provide=*,french]{babel}
 
 % Mathématiques
 \usepackage{amsmath, amssymb, amsthm}
@@ -198,36 +199,6 @@
 \vspace*{1cm}
 \newpage
 \pagestyle{plain}
-\AddToShipoutPictureBG{%
-  \begin{tikzpicture}[remember picture, overlay]
-    % Filet bleu à gauche
-    \draw[bleufonce, line width=2pt]
-      (current page.north west)++(1.2cm,-1.2cm)
-      -- (current page.south west)++(1.2cm,1.2cm);
-    % Filet bleu à droite
-    \draw[bleufonce, line width=2pt]
-      (current page.north east)++(-1.2cm,-1.2cm)
-      -- (current page.south east)++(-1.2cm,1.2cm);
-    % Filet en haut
-    \draw[bleufonce, line width=2pt]
-      (current page.north west)++(1.2cm,-1.2cm)
-      -- (current page.north east)++(-1.2cm,-1.2cm);
-    % Filet en bas
-    \draw[bleufonce, line width=2pt]
-      (current page.south west)++(1.2cm,1.2cm)
-      -- (current page.south east)++(-1.2cm,1.2cm);
-    % Petits carrés aux coins
-    \fill[bleumoyen]
-      (current page.north west)++(1.2cm,-1.2cm) circle (3pt);
-    \fill[bleumoyen]
-      (current page.north east)++(-1.2cm,-1.2cm) circle (3pt);
-    \fill[bleumoyen]
-      (current page.south west)++(1.2cm,1.2cm) circle (3pt);
-    \fill[bleumoyen]
-      (current page.south east)++(-1.2cm,1.2cm) circle (3pt);
-  \end{tikzpicture}%
-}
-
 \section*{Introduction}
 
 Les équations différentielles stochastiques sont un outil qui permet de modéliser des phénomènes dont l'évolution est soumise à un aléa. Contrairement aux équations différentielles ordinaires, elles intègrent un terme de bruit, typiquement un mouvement brownien, ce qui les rend bien plus adaptées à la description de systèmes réels, qu'il s'agisse de modèles en biologie, en physique ou en finance.
@@ -999,12 +970,9 @@ Pour éviter ce problème, on utilise la partie positive :
 \[
 X_k^+ = \max(X_k,0).
 \]
-Ainsi, lorsque le programme rencontre une valeur $X_k\leq 0$, on le signale et on poursuit la simulation en prenant
-\[
-X_k=0.
-\]
+La troncature complète évalue les coefficients en la partie positive, conserve un état interne signé et affiche sa partie positive. La section numérique précise la mise à jour.
 
-Une autre difficulté apparaît dans le cas du modèle CIR réfléchi en zéro, de la forme
+Une autre difficulté apparaît dans le cas du diffusion à racine carrée avec Euler réfléchi, de la forme
 \[
 dX_t = \sigma\sqrt{X_t}\,dB_t + \delta\,dt.
 \]
@@ -1118,62 +1086,30 @@ b(X_k)h
 
 Une première correction consisterait à remplacer les valeurs négatives par zéro. Cependant, cette méthode peut provoquer un effet artificiel d’écrasement en zéro : certaines trajectoires peuvent rester bloquées près de zéro à cause du schéma numérique.
 
-Pour éviter ce problème, nous utilisons une variante positive du schéma. L’idée est de traiter le terme en racine de manière semi-implicite :
+La version actuelle utilise Euler avec troncature complète. L'état interne $Y_k$ reste signé ; les coefficients sont évalués en $Y_k^+=\max(Y_k,0)$ :
 \[
-X_{k+1}
-=
-X_k
-+
-b(X_k)h
-+
-\sqrt{X_{k+1}}\Delta B_k.
+Y_{k+1}=Y_k+b(Y_k^+)h+\sqrt{Y_k^+}\Delta B_k,
+\qquad X_k=Y_k^+.
 \]
+La positivité de la sortie ne constitue pas une simulation exacte. Ce schéma conserve un biais de discrétisation qui doit être contrôlé en raffinant la grille.
 
-On pose alors
-\[
-Y_{k+1}=\sqrt{X_{k+1}}.
-\]
-
-Comme $X_{k+1}=Y_{k+1}^2$, on obtient
-\[
-Y_{k+1}^2
--
-\Delta B_kY_{k+1}
--
-\bigl(X_k+b(X_k)h\bigr)
-=
-0.
-\]
-
-On conserve la racine positive :
-\[
-Y_{k+1}
-=
-\frac{\Delta B_k+\sqrt{(\Delta B_k)^2+4\bigl(X_k+b(X_k)h\bigr)}}{2}.
-\]
-
-On définit ensuite
-\[
-X_{k+1}=Y_{k+1}^2.
-\]
-
-Ce schéma construit donc directement une valeur positive pour $X_{k+1}$, sans projeter brutalement la trajectoire sur zéro.
+L'ancienne mise à jour semi-implicite fondée sur la racine positive d'une équation quadratique a été retirée : elle introduisait une dérive parasite. Le test de régression sur $dX_t=\sqrt{X_t}\,dB_t$, $X_0=1$, contrôle que l'espérance simulée reste proche de 1 au lieu d'environ 1,5 à $T=1$.
 
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.75\textwidth]{figure_sigma_racine.png}
-    \caption{Simulation avec $\sigma(x)=\sqrt{x}$ en utilisant un schéma positif semi-implicite.}
+    \caption{Diffusion en racine carrée : Euler avec troncature complète, graine 42.}
     \label{fig:sigma_racine}
 \end{figure}
 
-Cette correction permet d’éviter les erreurs numériques liées au calcul de la racine carrée d’un nombre négatif. Les trajectoires restent positives ou nulles et peuvent s’approcher de zéro selon les réalisations du mouvement brownien, sans être artificiellement bloquées en zéro.
+\subsection{Diffusion à racine carrée avec Euler réfléchi}
 
-\subsection{Modèle CIR réfléchi en zéro}
-
-Nous avons également simulé un modèle de type CIR simplifié :
+Nous avons également simulé un modèle à diffusion en racine carrée et dérive constante :
 \[
 dX_t = \sigma\sqrt{X_t}\,dB_t + \delta\,dt.
 \]
+
+Ce modèle ne possède pas la dérive de retour à la moyenne $\kappa(\theta-X_t)$ du CIR financier classique. La réflexion ci-dessous est une correction numérique illustrative, sans preuve de convergence vers une EDS réfléchie.
 
 Dans ce modèle, le coefficient de diffusion dépend de $\sqrt{X_t}$. Comme précédemment, le schéma numérique peut produire des valeurs négatives. Pour éviter que le coefficient de diffusion ne soit pas défini, nous utilisons une version réfléchie en zéro.
 
@@ -1188,19 +1124,13 @@ par
 
 Le schéma numérique utilisé est donc de la forme
 \[
-X_{k+1}
-=
-X_k
-+
-\delta h
-+
-\sigma\sqrt{|X_k|}\Delta B_k.
+X_{k+1}=\left|X_k+\delta h+\sigma\sqrt{X_k}\Delta B_k\right|.
 \]
 
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.75\textwidth]{figure_cir_reflechi.png}
-    \caption{Simulation du modèle CIR réfléchi en zéro.}
+    \caption{Simulation de la diffusion à racine carrée avec Euler réfléchi.}
     \label{fig:cir_reflechi}
 \end{figure}
 
@@ -1236,35 +1166,7 @@ Pour quantifier cette convergence, nous avons calculé l’erreur uniforme
 \]
 où $(x_t)_{t\in[0,T]}$ désigne la solution de l’EDO.
 
-Une borne discrète simplifiée utilisée dans les simulations est de la forme
-\[
-\sup_{0\leq t\leq T}|X_t^\varepsilon-x_t|
-\leq
-e^{LT}\|\sigma_\varepsilon\|_\infty
-\sum_{k=0}^{M-1}|\Delta B_k|,
-\]
-où $L$ est une constante de Lipschitz associée à $b$.
-
-Comme
-\[
-\sigma_\varepsilon(x)=\varepsilon\sigma(x),
-\]
-et si
-\[
-\|\sigma\|_\infty\leq C,
-\]
-alors
-\[
-\|\sigma_\varepsilon\|_\infty\leq \varepsilon C.
-\]
-
-On obtient donc une borne de l’ordre de $\varepsilon$ :
-\[
-\sup_{0\leq t\leq T}|X_t^\varepsilon-x_t|
-\leq
-e^{LT}\varepsilon C
-\sum_{k=0}^{M-1}|\Delta B_k|.
-\]
+La comparaison numérique utilise une référence EDO exacte et des erreurs sur la grille. La somme des valeurs absolues des incréments browniens ne fournit pas une borne continue uniforme exploitable lorsque la grille est raffinée ; cette ancienne illustration a été retirée.
 
 Dans un premier temps, nous avons représenté les trajectoires simulées pour différentes valeurs de $\varepsilon$, ainsi que la solution de l’EDO associée.
 
@@ -1289,34 +1191,16 @@ En pratique, cette espérance est approchée par une moyenne empirique sur les $
 \left|X_t^{\varepsilon,i}-x_t\right|.
 \]
 
-Nous avons aussi calculé une borne numérique pour chaque trajectoire simulée. Pour une trajectoire donnée, cette borne est définie par
-\[
-e^{LT}\varepsilon C
-\sum_{k=0}^{M-1}|\Delta B_k^{\,i}|,
-\]
-où $\Delta B_k^{\,i}$ désigne le $k$-ième accroissement brownien utilisé pour simuler la $i$-ème trajectoire.
-
-La borne moyenne correspond donc à la moyenne empirique de ces bornes sur les $N$ trajectoires simulées :
-\[
-\frac{1}{N}\sum_{i=1}^N
-\left(
-e^{LT}\varepsilon C
-\sum_{k=0}^{M-1}|\Delta B_k^{\,i}|
-\right).
-\]
-
-Ainsi, la borne moyenne représente une majoration numérique moyenne de l’erreur uniforme. Elle permet de vérifier que la borne décroît lorsque $\varepsilon$ diminue, comme attendu théoriquement.
+La version reproductible utilise la solution exacte de l'EDO, $x(t)=e^{-t}$, et 1 000 trajectoires avec une grille fixe de 1 000 pas. Les mêmes incréments browniens sont utilisés pour les différentes amplitudes du bruit. L'erreur est un maximum sur la grille, et non un supremum continu. Les barres représentent $1,96$ fois l'erreur standard Monte-Carlo de la moyenne. Elles ne constituent pas une borne théorique de convergence. Le plancher d'erreur comprend le biais de discrétisation temporelle.
 
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.75\textwidth]{figure_quantification_convergence.png}
-    \caption{Quantification de la convergence vers l’EDO : erreur moyenne et borne moyenne en fonction de $\varepsilon$.}
+    \caption{Erreur moyenne sur la grille et intervalles Monte-Carlo approximatifs à 95\%.}
     \label{fig:quantification_convergence}
 \end{figure}
 
-Le graphique montre que l’erreur moyenne diminue lorsque $\varepsilon$ tend vers zéro. Par exemple, pour $\varepsilon=1$, l’erreur moyenne est relativement élevée, tandis qu’elle devient très faible pour $\varepsilon=0.01$. Cela confirme numériquement que la solution de l’EDS converge vers celle de l’EDO lorsque le coefficient de diffusion tend uniformément vers zéro.
-
-On remarque également que la borne moyenne décroît avec $\varepsilon$. Elle est plus grande que l’erreur moyenne observée, ce qui est normal : une borne donne une majoration de l’erreur, mais elle n’est pas nécessairement optimale. L’important est qu’elle diminue elle aussi lorsque $\varepsilon$ diminue, ce qui confirme l’ordre de grandeur attendu.
+Cette expérience illustre la diminution de l'erreur lorsque le bruit diminue à grille fixe ; elle ne remplace pas une preuve de convergence ni une étude du passage $h\to0$.
 
 \subsection{Comparaison des schémas d’Euler-Maruyama et de Milstein}
 
@@ -1451,9 +1335,9 @@ alors on a
 \log(C)+\alpha\log(h).
 \]
 
-La pente de la droite obtenue correspond donc à l’ordre de convergence du schéma.
+La pente ajustée est une estimation empirique ; elle dépend des grilles et de l’incertitude Monte-Carlo. La version actuelle couple toutes les grilles au même Brownien fin et ajuste les quatre grilles les plus fines.
 
-Numériquement, on s’attend à observer une pente proche de $1/2$ pour le schéma d’Euler-Maruyama et une pente proche de $1$ pour le schéma de Milstein. Le graphique confirme que le schéma de Milstein converge plus rapidement que le schéma d’Euler-Maruyama.
+Numériquement, on s’attend à observer une pente proche de $1/2$ pour le schéma d’Euler-Maruyama et une pente proche de $1$ pour le schéma de Milstein. Avec la graine 42 et 5 000 trajectoires, les pentes ajustées valent environ 0,523 pour Euler et 0,988 pour Milstein. Les barres d’erreur représentent des intervalles Monte-Carlo approximatifs pour les erreurs moyennes, sans être des intervalles de confiance sur les pentes.
 
 \subsection{Conclusion des résultats numériques}
 
@@ -1469,19 +1353,21 @@ Ce projet a permis de mieux comprendre les équations différentielles stochasti
 
 Du côté numérique, le schéma d'Euler-Maruyama est simple à coder mais il faut faire attention à certains cas particuliers. Quand le coefficient de diffusion est par exemple $\sigma(x)=\sqrt{x}$, le schéma peut produire des valeurs négatives et il faut prévoir une correction. La comparaison avec Milstein montre clairement que ce dernier converge plus vite (ordre $1$ contre $1/2$), même si la différence n'est pas toujours énorme en pratique pour des pas de temps raisonnables.
 
-En résumé, les simulations confirment bien les résultats théoriques et permettent de les visualiser concrètement, ce qui aide à mieux les appréhender.
+Les simulations illustrent les résultats sur les exemples testés. Elles ne constituent pas une validation générale, en particulier pour les corrections numériques au voisinage de zéro.
 
 \section*{Bibliographie}
 
 \begin{itemize}
     \item F. Comets et T. Meyre, \textit{Calcul stochastique et modèles de diffusions}, Dunod.
 
+    \item R. Lord, R. Koekkoek et D. van Dijk, \textit{A Comparison of Biased Simulation Schemes for Stochastic Volatility Models}, 2008.
+
     \item E. Altman, \textit{Cours de calcul stochastique}.
 \end{itemize}
 
 \section*{Annexe : code Python et exécutable}
 
-Cette annexe contient le code Python complet utilisé pour les simulations. L’exécutable associé est également fourni avec le rapport.
+Le dépôt fournit le script des expériences et le module de calcul. La capture suivante provient du travail d’origine ; l’exécutable et son interface ne sont pas distribués avec cette version. Les figures numériques du rapport ont été régénérées avec la graine 42.
 
 Nous présentons également une capture de l’interface de l’exécutable, afin de montrer à quoi ressemble l’application une fois lancée.
 
@@ -1494,5 +1380,6 @@ Nous présentons également une capture de l’interface de l’exécutable, afi
 \end{figure}
 
 \lstinputlisting{code_PNI.py}
+\lstinputlisting{simulation.py}
 
 \end{document}

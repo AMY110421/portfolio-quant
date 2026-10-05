@@ -8,13 +8,14 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 from data import get_dataset, get_dataset_names
-from utils import compute_sensitivity, compute_stats
+from utils import compute_sensitivity, compute_stats, adjacent_replacement
 from mechanisms import (
     laplace_mechanism,
     gaussian_mechanism,
     gaussian_mechanism_from_eps_delta,
+    gaussian_scale,
 )
-from verification import verify_epsilon_dp
+from verification import distribution_diagnostic, log_density
 
 # =====================================================
 # STYLES
@@ -45,7 +46,7 @@ class DPApp:
         self.dataset_var = tk.StringVar(value="Salaires")
         self.func_var = tk.StringVar(value="Moyenne")
         self.mech_var = tk.StringVar(value="Laplace")
-        self.epsilon_var = tk.DoubleVar(value=1.0)
+        self.epsilon_var = tk.DoubleVar(value=0.5)
         self.delta_var = tk.DoubleVar(value=1e-5)
         self.sigma_var = tk.DoubleVar(value=1.0)
         self.use_manual_sigma = tk.BooleanVar(value=False)
@@ -106,7 +107,7 @@ class DPApp:
         scale = tk.Scale(card4, from_=0.01, to=5.0, resolution=0.01, orient=tk.HORIZONTAL,
                          variable=self.epsilon_var, bg=CARD, fg=FG, highlightthickness=0, length=150)
         scale.pack(side=tk.LEFT, padx=5)
-        self.eps_label = tk.Label(card4, text="1.00", bg=CARD, fg=FG, font=('Segoe UI', 10, 'bold'), width=5)
+        self.eps_label = tk.Label(card4, text="0.50", bg=CARD, fg=FG, font=('Segoe UI', 10, 'bold'), width=5)
         self.eps_label.pack(side=tk.LEFT, padx=5)
         
         # δ
@@ -132,7 +133,7 @@ class DPApp:
         
         self._btn(row3, "🔄 Lancer", self.run_calculation)
         self._btn(row3, "📊 Graphiques", self.show_all_graphs)
-        self._btn(row3, "🔍 Diagnostic numérique", self.verify_dp)
+        self._btn(row3, "🔍 Distinction empirique", self.verify_dp)
         self._btn(row3, "🎯 Attaque", self.simulate_attack)
         
         row4 = tk.Frame(main, bg=BG)
@@ -228,7 +229,9 @@ class DPApp:
             self.dataset_var.set("Salaires")
             return
         try:
-            self.data = np.loadtxt(path, delimiter=',')
+            candidate = np.atleast_1d(np.loadtxt(path, delimiter=','))
+            compute_stats(candidate, "Moyenne")
+            self.data = candidate
             self.description = f"Données chargées"
             self.dataset_var.set("Charger CSV...")
             self._update_info()
@@ -253,42 +256,43 @@ class DPApp:
         self.ax.tick_params(colors=FG)
         self.canvas.draw_idle()
     
-    def run_calculation(self):
-        if self.data is None or len(self.data) == 0:
-            messagebox.showwarning("Avertissement", "Aucune donnée chargée")
-            return
-        
-        self.ax.clear()
-        
-        func = self.func_var.get()
-        mech = self.mech_var.get()
-        eps = self.epsilon_var.get()
-        delta = self.delta_var.get()
-        clip_min = self.clip_min_var.get()
-        clip_max = self.clip_max_var.get()
-        threshold = self.threshold_var.get()
-        
-        data_clipped = np.clip(self.data, clip_min, clip_max)
-        self.true_value = compute_stats(data_clipped, func, threshold)
-        self.sensitivity = compute_sensitivity(func, clip_min, clip_max, len(data_clipped))
-        
+    def _parameters(self):
+        if self.data is None:
+            raise ValueError("Aucune donnée chargée")
+        func, mech = self.func_var.get(), self.mech_var.get()
+        epsilon, delta = float(self.epsilon_var.get()), float(self.delta_var.get())
+        lower, upper = float(self.clip_min_var.get()), float(self.clip_max_var.get())
+        threshold = float(self.threshold_var.get())
+        sensitivity = compute_sensitivity(func, lower, upper, len(self.data))
+        if not np.isfinite(epsilon) or epsilon <= 0:
+            raise ValueError("ε doit être fini et strictement positif")
+        d, dp = adjacent_replacement(self.data, func, lower, upper, threshold)
+        value_d = compute_stats(d, func, threshold)
+        value_dp = compute_stats(dp, func, threshold)
         if mech == "Laplace":
-            self.result = laplace_mechanism(self.true_value, self.sensitivity, eps)
-            self.mechanism_name = "Laplace"
-            self.sigma_used = 0
-        elif mech == "Gaussien":
-            if self.use_manual_sigma.get():
-                sigma = self.sigma_var.get()
-                self.result = gaussian_mechanism(self.true_value, sigma)
-                self.sigma_used = sigma
+            scale = sensitivity / epsilon
+        elif self.use_manual_sigma.get():
+            scale = float(self.sigma_var.get())
+            log_density(value_d, value_d, scale, mech)
+        else:
+            scale = gaussian_scale(sensitivity, epsilon, delta)
+        return func, mech, epsilon, delta, sensitivity, scale, value_d, value_dp
+
+    def run_calculation(self):
+        try:
+            func, mech, eps, delta, sensitivity, scale, value_d, _ = self._parameters()
+            self.true_value, self.sensitivity = value_d, sensitivity
+            self.mechanism_name = mech
+            self.sigma_used = scale if mech == "Gaussien" else 0
+            if mech == "Laplace":
+                self.result = laplace_mechanism(value_d, sensitivity, eps)
             else:
-                self.result = gaussian_mechanism_from_eps_delta(self.true_value, self.sensitivity, eps, delta)
-                self.sigma_used = (self.sensitivity * np.sqrt(2 * np.log(1.25 / delta))) / eps
-            self.mechanism_name = "Gaussien"
-        
-        self._display_results()
-        self._plot_comparison()
-    
+                self.result = gaussian_mechanism(value_d, scale)
+            self._display_results()
+            self._plot_comparison()
+        except Exception as exc:
+            messagebox.showerror("Paramètres invalides", str(exc))
+
     def _display_results(self):
         self.result_text.config(state=tk.NORMAL)
         self.result_text.delete(1.0, tk.END)
@@ -337,183 +341,51 @@ class DPApp:
         self.canvas.draw_idle()
     
     def show_all_graphs(self):
-        """Affiche la distribution empirique des sorties du mécanisme sélectionné."""
-        if self.data is None or len(self.data) == 0:
-            return
-
-        plt.style.use('dark_background')
-        mech = self.mech_var.get()
-        fig, ax = plt.subplots(figsize=(8, 5))
-        fig.patch.set_facecolor('#1e1e2e')
-
-        n_sim = 1000
-        results = []
-        for _ in range(n_sim):
-            if mech == "Laplace":
-                results.append(
-                    laplace_mechanism(
-                        self.true_value, self.sensitivity, self.epsilon_var.get()
-                    )
-                )
-            else:
-                if self.use_manual_sigma.get():
-                    results.append(
-                        gaussian_mechanism(self.true_value, self.sigma_var.get())
-                    )
-                else:
-                    results.append(
-                        gaussian_mechanism_from_eps_delta(
-                            self.true_value,
-                            self.sensitivity,
-                            self.epsilon_var.get(),
-                            self.delta_var.get(),
-                        )
-                    )
-
-        ax.hist(results, bins=50, density=True, alpha=0.7, color='#89b4fa')
-        ax.axvline(
-            self.true_value,
-            color='#f38ba8',
-            linestyle='--',
-            label=f'Valeur exacte = {self.true_value:.2f}',
-        )
-        ax.set_xlabel('Valeur bruitée', color='#cdd6f4')
-        ax.set_ylabel('Densité', color='#cdd6f4')
-        ax.set_title(
-            f'Distribution des sorties ({mech}, ε = {self.epsilon_var.get():.2f})',
-            color='#cdd6f4',
-        )
-        ax.legend()
-        ax.grid(True, alpha=0.2)
-        ax.tick_params(colors='#cdd6f4')
-        plt.tight_layout()
-        plt.show()
-
-    @staticmethod
-    def _log_density(value, center, scale, mechanism):
-        """Log-densité utilisée par le classifieur de l'attaque simulée."""
-        if scale <= 0:
-            raise ValueError("L'échelle du bruit doit être strictement positive.")
-        if mechanism == "Laplace":
-            return -abs(value - center) / scale - np.log(2 * scale)
-        return (
-            -0.5 * ((value - center) / scale) ** 2
-            - np.log(scale)
-            - 0.5 * np.log(2 * np.pi)
-        )
-
-    def simulate_attack(self):
-        """Simule la décision d'un attaquant entre deux bases adjacentes."""
-        if self.data is None or len(self.data) < 2:
-            messagebox.showwarning(
-                "Avertissement",
-                "Il faut au moins deux enregistrements pour construire une base adjacente.",
-            )
-            return
-
         try:
-            func = self.func_var.get()
-            mech = self.mech_var.get()
-            epsilon = float(self.epsilon_var.get())
-            delta = float(self.delta_var.get())
-            clip_min = float(self.clip_min_var.get())
-            clip_max = float(self.clip_max_var.get())
-            threshold = float(self.threshold_var.get())
-            if epsilon <= 0 or clip_min >= clip_max:
-                raise ValueError("Les paramètres ε et les bornes de clipping sont invalides.")
-            if mech == "Gaussien" and not (0 < delta < 1):
-                raise ValueError("δ doit être compris entre 0 et 1.")
-
-            data_d = np.clip(self.data, clip_min, clip_max)
-            data_dp = data_d[1:]
-            value_d = compute_stats(data_d, func, threshold)
-            value_dp = compute_stats(data_dp, func, threshold)
-            sensitivity = compute_sensitivity(
-                func, clip_min, clip_max, len(data_d)
-            )
-
-            if mech == "Laplace":
-                scale = sensitivity / epsilon
-                draw = lambda center: laplace_mechanism(
-                    center, sensitivity, epsilon
-                )
-            else:
-                if self.use_manual_sigma.get():
-                    scale = float(self.sigma_var.get())
-                    draw = lambda center: gaussian_mechanism(center, scale)
-                else:
-                    scale = (
-                        sensitivity
-                        * np.sqrt(2 * np.log(1.25 / delta))
-                        / epsilon
-                    )
-                    draw = lambda center: gaussian_mechanism_from_eps_delta(
-                        center, sensitivity, epsilon, delta
-                    )
-
-            n_sim = 1000
-            outputs_d = np.array([draw(value_d) for _ in range(n_sim)])
-            outputs_dp = np.array([draw(value_dp) for _ in range(n_sim)])
-
-            decisions_d = np.array([
-                self._log_density(z, value_d, scale, mech)
-                >= self._log_density(z, value_dp, scale, mech)
-                for z in outputs_d
-            ])
-            decisions_dp = np.array([
-                self._log_density(z, value_dp, scale, mech)
-                > self._log_density(z, value_d, scale, mech)
-                for z in outputs_dp
-            ])
-            accuracy = 0.5 * (decisions_d.mean() + decisions_dp.mean())
-
+            _, mech, eps, _, _, scale, value_d, value_dp = self._parameters()
+            result = distribution_diagnostic(value_d, value_dp, scale, mech, n_sim=1000)
             fig, ax = plt.subplots(figsize=(8, 5))
-            ax.hist(outputs_d, bins=45, density=True, alpha=0.55, label='Sorties depuis D')
-            ax.hist(outputs_dp, bins=45, density=True, alpha=0.55, label="Sorties depuis D'")
-            ax.axvline(value_d, color='#1f77b4', linestyle='--', label='Centre sous D')
-            ax.axvline(value_dp, color='#ff7f0e', linestyle='--', label="Centre sous D'")
-            ax.set_xlabel('Sortie observée')
-            ax.set_ylabel('Densité empirique')
-            ax.set_title(f'Attaque simulée ({mech}, ε = {epsilon:.2f})')
+            ax.hist(result["outputs_d"], bins=50, density=True, alpha=0.7)
+            ax.axvline(value_d, color="red", linestyle="--", label="Valeur exacte")
+            ax.set(xlabel="Sortie bruitée", ylabel="Densité", title=f"Distribution ({mech}, ε={eps:.2f})")
             ax.legend()
-            ax.grid(alpha=0.2)
             fig.tight_layout()
             plt.show()
-
-            msg = "🎯 Attaque simulée\n" + "-" * 30 + "\n"
-            msg += f"Base D : {len(data_d)} enregistrements\n"
-            msg += f"Base D' : {len(data_dp)} enregistrements\n"
-            msg += f"Valeur sous D : {value_d:.2f}\n"
-            msg += f"Valeur sous D' : {value_dp:.2f}\n"
-            msg += f"Décisions correctes : {100 * accuracy:.1f} %\n"
-            msg += "-" * 30 + "\n"
-            msg += (
-                "Plus les distributions se recouvrent, plus la distinction est difficile. "
-                "Ce résultat est une simulation et ne constitue pas une preuve de DP."
-            )
-            messagebox.showinfo("Attaque simulée", msg)
         except Exception as exc:
-            messagebox.showerror("Erreur", f"Impossible de simuler l'attaque : {exc}")
+            messagebox.showerror("Paramètres invalides", str(exc))
+
+    def simulate_attack(self):
+        try:
+            _, mech, eps, _, _, scale, value_d, value_dp = self._parameters()
+            result = distribution_diagnostic(value_d, value_dp, scale, mech)
+            fig, ax = plt.subplots(figsize=(8, 5))
+            ax.hist(result["outputs_d"], bins=45, density=True, alpha=0.55, label="D")
+            ax.hist(result["outputs_dp"], bins=45, density=True, alpha=0.55, label="D' : une ligne remplacée")
+            ax.set(xlabel="Sortie observée", ylabel="Densité", title=f"Attaque simulée ({mech}, ε={eps:.2f})")
+            ax.legend()
+            fig.tight_layout()
+            plt.show()
+            self._show_diagnostic(result)
+        except Exception as exc:
+            messagebox.showerror("Paramètres invalides", str(exc))
+
+    def _show_diagnostic(self, result):
+        lo, hi = result["ci95"]
+        messagebox.showinfo("Diagnostic de distinction", (
+            "Adjacence : remplacement d'une ligne, taille publique fixe.\n"
+            f"Décisions correctes : {100*result['accuracy']:.1f} %\n"
+            f"Intervalle Monte-Carlo approximatif à 95 % : [{100*lo:.1f}, {100*hi:.1f}] %\n\n"
+            "Hypothèses : deux bases connues, probabilités a priori égales, une sortie.\n"
+            "Ce diagnostic ne vérifie ni ne certifie une garantie DP.\n"
+            "Le mode σ manuel n'associe pas automatiquement une garantie (ε, δ)."
+        ))
 
     def verify_dp(self):
-        if self.data is None or len(self.data) == 0:
-            messagebox.showwarning("Avertissement", "Aucune donnée chargée")
-            return
-        
-        mech_choice = 1 if self.mech_var.get() == "Laplace" else 2
-        ratio, e_eps, bayes, ok = verify_epsilon_dp(
-            self.true_value, self.sensitivity, self.epsilon_var.get(), self.delta_var.get(), mech_choice
-        )
-        
-        msg = f"🔍 Vérification de la garantie ε-DP\n"
-        msg += "-" * 30 + "\n"
-        msg += f"e^ε = {e_eps:.4f}\n"
-        msg += f"Rapport estimé : {ratio:.4f}\n"
-        msg += f"Erreur de Bayes : {bayes:.4f}\n"
-        msg += "-" * 30 + "\n"
-        msg += "✅ Simulation compatible avec la borne" if ok else "⚠️ Simulation incompatible avec la borne"
-        
-        messagebox.showinfo("Diagnostic numérique", msg)
+        try:
+            _, mech, _, _, _, scale, value_d, value_dp = self._parameters()
+            self._show_diagnostic(distribution_diagnostic(value_d, value_dp, scale, mech))
+        except Exception as exc:
+            messagebox.showerror("Paramètres invalides", str(exc))
 
 def main():
     root = tk.Tk()
@@ -522,3 +394,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

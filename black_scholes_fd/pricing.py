@@ -22,7 +22,7 @@ def _normal_cdf(x: float) -> float:
 
 
 def black_scholes_call(m: Market) -> float:
-    if min(m.spot, m.strike, m.volatility, m.maturity) <= 0:
+    if not np.isfinite([m.spot, m.strike, m.rate, m.volatility, m.maturity]).all() or min(m.spot, m.strike, m.volatility, m.maturity) <= 0:
         raise ValueError("spot, strike, volatility and maturity must be positive")
     d1 = (log(m.spot / m.strike) + (m.rate + 0.5 * m.volatility**2) * m.maturity) / (m.volatility * sqrt(m.maturity))
     d2 = d1 - m.volatility * sqrt(m.maturity)
@@ -34,6 +34,8 @@ def _solve_tridiagonal(lower: np.ndarray, diagonal: np.ndarray, upper: np.ndarra
     n = len(rhs)
     cp = np.zeros(n)
     dp = np.zeros(n)
+    if abs(diagonal[0]) < 1e-14:
+        raise ArithmeticError("singular tridiagonal system")
     cp[0] = upper[0] / diagonal[0]
     dp[0] = rhs[0] / diagonal[0]
     for j in range(1, n):
@@ -49,21 +51,21 @@ def _solve_tridiagonal(lower: np.ndarray, diagonal: np.ndarray, upper: np.ndarra
     return out
 
 
-def finite_difference_call(m: Market, *, scheme: str, space_steps: int = 200, time_steps: int = 1000, s_max: float | None = None) -> float:
+def finite_difference_call(m: Market, *, scheme: str, space_steps: int = 200, time_steps: int = 2000, s_max: float | None = None) -> float:
     """Solve the Black-Scholes PDE forward in time-to-maturity on [0, s_max].
 
     Explicit Euler is subject to a stability condition checked below.
     Implicit Euler solves a tridiagonal system at each time step.
     """
-    if min(m.spot, m.strike, m.volatility, m.maturity) <= 0:
+    if not np.isfinite([m.spot, m.strike, m.rate, m.volatility, m.maturity]).all() or min(m.spot, m.strike, m.volatility, m.maturity) <= 0:
         raise ValueError("spot, strike, volatility and maturity must be positive")
     if scheme not in {"explicit", "implicit"}:
         raise ValueError("scheme must be explicit or implicit")
-    if space_steps < 3 or time_steps < 1:
+    if not isinstance(space_steps, (int, np.integer)) or not isinstance(time_steps, (int, np.integer)) or space_steps < 3 or time_steps < 1:
         raise ValueError("space_steps >= 3 and time_steps >= 1 required")
     s_max = s_max if s_max is not None else 4.0 * max(m.spot, m.strike)
-    if s_max <= m.spot:
-        raise ValueError("s_max must exceed spot")
+    if not np.isfinite(s_max) or s_max <= max(m.spot, m.strike):
+        raise ValueError("s_max must be finite and exceed spot and strike")
     ds, dt = s_max / space_steps, m.maturity / time_steps
     s = np.linspace(0.0, s_max, space_steps + 1)
     values = np.maximum(s - m.strike, 0.0)
@@ -71,7 +73,9 @@ def finite_difference_call(m: Market, *, scheme: str, space_steps: int = 200, ti
     a = 0.5 * (m.volatility**2 * i**2 - m.rate * i)
     b = -(m.volatility**2 * i**2 + m.rate)
     c = 0.5 * (m.volatility**2 * i**2 + m.rate * i)
-    if scheme == "explicit" and (1 + dt * b[-1] < 0 or np.any(1 + dt * b < 0)):
+    if np.any(a[1:] < 0) or np.any(c[:-1] < 0):
+        raise ValueError("centered stencil is not monotone for this rate/volatility; use another discretization")
+    if scheme == "explicit" and np.any(1 + dt * b < 0):
         needed = int(np.ceil(m.maturity * (m.volatility**2 * (space_steps - 1)**2 + m.rate)))
         raise ValueError(f"explicit scheme unstable: use at least {needed} time steps")
 
@@ -96,6 +100,7 @@ if __name__ == "__main__":
     m = Market()
     analytical = black_scholes_call(m)
     print(f"Black-Scholes analytique : {analytical:.6f}")
-    for scheme, n in (("explicit", 2000), ("implicit", 200)):
+    for scheme, n in (("explicit", 2000), ("implicit", 2000)):
         estimate = finite_difference_call(m, scheme=scheme, time_steps=n)
         print(f"{scheme:8s} : {estimate:.6f} | erreur absolue : {abs(estimate - analytical):.6f}")
+
